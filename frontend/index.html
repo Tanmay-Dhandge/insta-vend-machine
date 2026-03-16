@@ -367,7 +367,7 @@ body::before {
 }
 .order-row:last-of-type { border-bottom: none; }
 .order-row-name { display: flex; align-items: center; gap: 6px; }
-.order-row-price { color: var(--cyan); font-weight: 600; }
+.order-row-price { color: var(--cyan); font-weight: 600; white-space: nowrap; }
 .order-row-remove {
   background: none; border: none;
   color: var(--red); font-size: 0.7rem;
@@ -376,6 +376,40 @@ body::before {
   font-family: var(--font-mono);
 }
 .order-row-remove:hover { opacity: 1; }
+
+/* qty controls inside order row */
+.order-qty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 3px 4px;
+}
+.oqty-btn {
+  width: 24px; height: 24px;
+  border-radius: 5px;
+  background: rgba(255,255,255,0.06);
+  border: none;
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+.oqty-btn:hover { background: rgba(0,229,200,0.18); color: var(--cyan); }
+.oqty-val {
+  font-family: var(--font-head);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--cyan);
+  min-width: 18px;
+  text-align: center;
+}
 
 .total-bar {
   display: flex;
@@ -675,10 +709,10 @@ body::before {
 /* ============================================================
    ①  MQTT CONFIG  ← Edit these 3 lines for HiveMQ Cloud
 ============================================================ */
-//const MQTT_BROKER   = 'wss://broker.hivemq.com:8884/mqtt'; // public broker (works instantly)
- const MQTT_BROKER   = 'wss://366c887e88bf40c496821b5e646d3a12.s1.eu.hivemq.cloud:8884/mqtt'; // HiveMQ Cloud
-const MQTT_USERNAME = 'hivemq.webclient.1773643900438';   // leave blank for public broker
-const MQTT_PASSWORD = '7ap6?AXCcL25Bx@&Qdu!';   // leave blank for public broker
+const MQTT_BROKER   = 'wss://broker.hivemq.com:8884/mqtt'; // public broker (works instantly)
+// const MQTT_BROKER   = 'wss://YOUR_ID.s1.eu.hivemq.cloud:8884/mqtt'; // HiveMQ Cloud
+const MQTT_USERNAME = '';   // leave blank for public broker
+const MQTT_PASSWORD = '';   // leave blank for public broker
 
 const TOPICS = {
   order:   'vendbot/order',
@@ -751,67 +785,28 @@ function mqttPublish(topic, payload) {
 ============================================================ */
 function renderProducts() {
   const grid = document.getElementById('itemsGrid');
-
   grid.innerHTML = PRODUCTS.map(p => {
-
-    const qty = cart[p.id] || 0;
-    const selected = qty > 0;
-
-    const lowStock = p.stock <= 2;
-    const noStock = p.stock === 0;
-
+    const qty     = cart[p.id] || 0;
+    const sel     = qty > 0;
+    const lowSt   = p.stock <= 2;
+    const noSt    = p.stock === 0;
     return `
-    <div class="item-card ${selected ? 'selected' : ''}"
+    <div class="item-card ${sel ? 'selected' : ''}"
          id="card_${p.id}"
-         style="${noStock ? 'opacity:.35;pointer-events:none' : ''}">
-
+         onclick="${noSt ? '' : `toggleItem('${p.id}')`}"
+         style="${noSt ? 'opacity:.35;cursor:not-allowed;pointer-events:none' : ''}">
+      <div class="item-check">✓</div>
       <div class="item-slot">${p.id}</div>
-
       <span class="item-emoji">${p.emoji}</span>
-
       <div class="item-name">${p.name}</div>
-
-      <div class="item-price">
-        <span>₹</span>${p.price}
+      <div class="item-price"><span>₹</span>${p.price}</div>
+      <div class="item-stock ${lowSt && !noSt ? 'low' : ''}">
+        ${noSt ? 'OUT OF STOCK' : p.stock + ' in stock'}
       </div>
-
-      <div class="item-stock ${lowStock && !noStock ? 'low' : ''}">
-        ${noStock ? 'OUT OF STOCK' : p.stock + ' in stock'}
-      </div>
-
-      ${
-        !selected
-        ?
-        `<button class="qty-btn" 
-           style="margin-top:10px;width:100%" 
-           onclick="toggleItem('${p.id}')">
-           SELECT
-         </button>`
-        :
-        `
-        <div class="qty-row">
-
-          <button class="qty-btn"
-            onclick="changeQty('${p.id}',-1)">
-            −
-          </button>
-
-          <span class="qty-val">${qty}</span>
-
-          <button class="qty-btn"
-            onclick="changeQty('${p.id}',+1)">
-            +
-          </button>
-
-        </div>
-        `
-      }
-
-    </div>
-    `;
-
+    </div>`;
   }).join('');
 }
+
 /* ============================================================
    RENDER — COINS
 ============================================================ */
@@ -838,11 +833,16 @@ function renderOrder() {
       <div class="order-row">
         <div class="order-row-name">
           <span>${p.emoji}</span>
-          <span>${p.name} ×${cart[p.id]}</span>
+          <span>${p.name}</span>
         </div>
-        <div style="display:flex;align-items:center">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="order-qty">
+            <button class="oqty-btn" onclick="changeQty('${p.id}',-1)">−</button>
+            <span class="oqty-val">${cart[p.id]}</span>
+            <button class="oqty-btn" onclick="changeQty('${p.id}',+1)">+</button>
+          </div>
           <span class="order-row-price">₹${p.price * cart[p.id]}</span>
-          <button class="order-row-remove" onclick="event.stopPropagation(); removeItem('${p.id}')">✕</button>
+          <button class="order-row-remove" onclick="removeItem('${p.id}')">✕</button>
         </div>
       </div>`).join('');
     totalBar.style.display = 'flex';
@@ -898,9 +898,9 @@ function changeQty(id, delta) {
   const p   = PRODUCTS.find(x => x.id === id);
   const cur = cart[id] || 0;
   const nxt = cur + delta;
-  if (nxt <= 0)       { delete cart[id]; }
+  if (nxt <= 0)           { delete cart[id]; }
   else if (nxt > p.stock) { log('Max stock reached for ' + p.name, 'err'); return; }
-  else                { cart[id] = nxt; }
+  else                    { cart[id] = nxt; }
   renderProducts();
   renderOrder();
 }
