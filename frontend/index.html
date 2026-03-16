@@ -1,54 +1,1001 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>Insta-Vend</title>
-<link rel="stylesheet" href="style.css">
-</head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>VendBot 3000</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet"/>
 
+<style>
+/* ============================================================
+   RESET & ROOT
+============================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:         #0d0d0d;
+  --panel:      #111111;
+  --card:       #171717;
+  --border:     #2a2a2a;
+  --border2:    #333;
+  --text:       #e8e8e0;
+  --muted:      #555;
+  --muted2:     #777;
+  --cyan:       #00e5c8;
+  --cyan-dim:   rgba(0,229,200,0.12);
+  --cyan-glow:  0 0 20px rgba(0,229,200,0.4);
+  --red:        #ff3b30;
+  --red-dim:    rgba(255,59,48,0.12);
+  --amber:      #ffb400;
+  --amber-dim:  rgba(255,180,0,0.12);
+  --green:      #30d158;
+  --radius:     14px;
+  --font-mono:  'Share Tech Mono', monospace;
+  --font-head:  'Orbitron', sans-serif;
+}
+
+html { font-size: 16px; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* scanline effect */
+body::before {
+  content: '';
+  position: fixed; inset: 0; z-index: 9000;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent 0px, transparent 3px,
+    rgba(0,0,0,0.08) 3px, rgba(0,0,0,0.08) 4px
+  );
+  pointer-events: none;
+}
+
+/* ============================================================
+   SCROLLBAR
+============================================================ */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ============================================================
+   HEADER
+============================================================ */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  height: 60px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border2);
+  position: sticky; top: 0; z-index: 100;
+}
+
+.logo {
+  font-family: var(--font-head);
+  font-weight: 900;
+  font-size: 1.15rem;
+  letter-spacing: 6px;
+  color: var(--cyan);
+  text-shadow: var(--cyan-glow);
+  user-select: none;
+}
+.logo span { color: var(--text); opacity: 0.4; }
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.conn-badge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 0.65rem;
+  letter-spacing: 2px;
+  color: var(--muted2);
+  text-transform: uppercase;
+}
+
+.conn-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: background 0.4s, box-shadow 0.4s;
+  flex-shrink: 0;
+}
+.conn-dot.live {
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: dotpulse 2s ease-in-out infinite;
+}
+.conn-dot.err { background: var(--red); box-shadow: 0 0 8px var(--red); }
+
+@keyframes dotpulse {
+  0%,100% { opacity: 1; }
+  50%      { opacity: 0.3; }
+}
+
+.time-display {
+  font-size: 0.7rem;
+  color: var(--muted);
+  letter-spacing: 1px;
+}
+
+/* ============================================================
+   LAYOUT
+============================================================ */
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  min-height: calc(100vh - 60px);
+}
+
+/* ============================================================
+   LEFT — MACHINE
+============================================================ */
+.machine-side {
+  padding: 36px 32px;
+  border-right: 1px solid var(--border);
+}
+
+.section-label {
+  font-family: var(--font-head);
+  font-size: 0.55rem;
+  font-weight: 600;
+  letter-spacing: 5px;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.section-label::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* 2x2 product grid */
+.items-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 40px;
+}
+
+.item-card {
+  background: var(--card);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 22px 18px 18px;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+  user-select: none;
+}
+
+.item-card::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: var(--cyan-dim);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.item-card:hover::before   { opacity: 0.6; }
+.item-card:hover {
+  border-color: var(--cyan);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 28px rgba(0,0,0,0.5), var(--cyan-glow);
+}
+.item-card.selected {
+  border-color: var(--cyan);
+  box-shadow: var(--cyan-glow);
+  background: #141a1a;
+}
+.item-card.selected::before { opacity: 1; }
+
+/* slot badge */
+.item-slot {
+  position: absolute;
+  top: 12px; right: 14px;
+  font-size: 0.6rem;
+  color: var(--muted);
+  letter-spacing: 1.5px;
+}
+
+/* selection checkmark */
+.item-check {
+  position: absolute;
+  top: 10px; left: 12px;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: var(--cyan);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.65rem;
+  color: #000;
+  font-weight: bold;
+  opacity: 0;
+  transform: scale(0.5);
+  transition: opacity 0.2s, transform 0.2s;
+}
+.item-card.selected .item-check {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.item-emoji {
+  font-size: 3.2rem;
+  display: block;
+  margin-bottom: 10px;
+  line-height: 1;
+  transition: transform 0.2s;
+}
+.item-card:hover .item-emoji { transform: scale(1.08); }
+
+.item-name {
+  font-family: var(--font-head);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.item-price {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: var(--cyan);
+}
+.item-price span { font-size: 0.7rem; opacity: 0.7; vertical-align: middle; margin-right: 1px; }
+
+.item-stock {
+  font-size: 0.6rem;
+  color: var(--muted);
+  margin-top: 4px;
+  letter-spacing: 1px;
+}
+.item-stock.low { color: var(--amber); }
+
+/* quantity row on selected cards */
+.qty-row {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.item-card.selected .qty-row { display: flex; }
+
+.qty-btn {
+  width: 26px; height: 26px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background 0.15s;
+  font-family: var(--font-mono);
+}
+.qty-btn:hover { background: rgba(0,229,200,0.15); border-color: var(--cyan); color: var(--cyan); }
+
+.qty-val {
+  font-family: var(--font-head);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--cyan);
+  min-width: 20px;
+  text-align: center;
+}
+
+/* ============================================================
+   COINS SECTION
+============================================================ */
+.coins-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.coin-btn {
+  background: var(--card);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  color: var(--amber);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 10px 6px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.15s;
+  letter-spacing: 0.5px;
+}
+.coin-btn:hover {
+  border-color: var(--amber);
+  background: var(--amber-dim);
+  color: var(--amber);
+}
+.coin-btn:active { transform: scale(0.94); }
+
+/* ============================================================
+   RIGHT — PANEL
+============================================================ */
+.panel-side {
+  background: var(--panel);
+  padding: 28px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.panel-box {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+
+/* ── order list ── */
+.order-empty {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-align: center;
+  padding: 12px 0;
+}
+
+.order-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  font-size: 0.78rem;
+  border-bottom: 1px dashed var(--border);
+}
+.order-row:last-of-type { border-bottom: none; }
+.order-row-name { display: flex; align-items: center; gap: 6px; }
+.order-row-price { color: var(--cyan); font-weight: 600; }
+.order-row-remove {
+  background: none; border: none;
+  color: var(--red); font-size: 0.7rem;
+  cursor: pointer; padding: 0 0 0 8px;
+  opacity: 0.6; transition: opacity 0.15s;
+  font-family: var(--font-mono);
+}
+.order-row-remove:hover { opacity: 1; }
+
+.total-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border2);
+}
+.total-label {
+  font-family: var(--font-head);
+  font-size: 0.6rem;
+  letter-spacing: 3px;
+  color: var(--muted2);
+}
+.total-amount {
+  font-family: var(--font-head);
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--cyan);
+}
+
+/* ── inserted display ── */
+.inserted-display {
+  background: #0a0a0a;
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+.ins-col { display: flex; flex-direction: column; gap: 3px; }
+.ins-label {
+  font-size: 0.55rem;
+  letter-spacing: 3px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.ins-value {
+  font-family: var(--font-head);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--amber);
+  letter-spacing: 1px;
+}
+.ins-needed {
+  font-family: var(--font-head);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--muted2);
+}
+
+.change-bar {
+  font-size: 0.72rem;
+  text-align: right;
+  margin-top: 6px;
+  display: none;
+}
+.change-bar.ok  { color: var(--green); display: block; }
+.change-bar.short { color: var(--red); display: block; }
+
+/* ── dispense button ── */
+.btn-dispense {
+  width: 100%;
+  padding: 16px;
+  border: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #00e5c8 0%, #00b89e 100%);
+  color: #000;
+  font-family: var(--font-head);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 3px;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+.btn-dispense::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: rgba(255,255,255,0.15);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.btn-dispense:hover:not(:disabled)::after { opacity: 1; }
+.btn-dispense:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(0,229,200,0.4);
+}
+.btn-dispense:active:not(:disabled) { transform: translateY(0); }
+.btn-dispense:disabled {
+  background: var(--border2);
+  color: var(--muted);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-cancel {
+  width: 100%;
+  padding: 11px;
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted2);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  letter-spacing: 1px;
+}
+.btn-cancel:hover { border-color: var(--red); color: var(--red); background: var(--red-dim); }
+
+/* ── log ── */
+.log-feed {
+  max-height: 140px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.log-line {
+  font-size: 0.65rem;
+  line-height: 1.5;
+  display: flex;
+  gap: 7px;
+}
+.log-ts { color: var(--muted); flex-shrink: 0; }
+.log-ok   { color: var(--green); }
+.log-info { color: var(--muted2); }
+.log-err  { color: var(--red); }
+
+/* ============================================================
+   SUCCESS OVERLAY
+============================================================ */
+.overlay {
+  position: fixed; inset: 0; z-index: 8000;
+  background: rgba(0,0,0,0.88);
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.3s;
+}
+.overlay.show { opacity: 1; pointer-events: all; }
+
+.modal {
+  background: var(--panel);
+  border: 1px solid var(--cyan);
+  border-radius: 18px;
+  padding: 44px 40px;
+  max-width: 360px; width: 90%;
+  text-align: center;
+  box-shadow: var(--cyan-glow), 0 40px 80px rgba(0,0,0,0.8);
+  transform: scale(0.88);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.overlay.show .modal { transform: scale(1); }
+
+.modal-icon { font-size: 3.5rem; margin-bottom: 14px; display: block; }
+.modal-title {
+  font-family: var(--font-head);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 4px;
+  color: var(--cyan);
+  margin-bottom: 10px;
+}
+.modal-body {
+  font-size: 0.75rem;
+  line-height: 1.9;
+  color: var(--muted2);
+  margin-bottom: 24px;
+  white-space: pre-line;
+}
+.modal-txn {
+  font-size: 0.62rem;
+  color: var(--muted);
+  margin-bottom: 22px;
+  letter-spacing: 1px;
+}
+.modal-close {
+  background: var(--cyan);
+  color: #000;
+  border: none;
+  padding: 12px 32px;
+  border-radius: 8px;
+  font-family: var(--font-head);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 3px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+.modal-close:hover { opacity: 0.85; }
+
+/* ============================================================
+   RESPONSIVE
+============================================================ */
+@media (max-width: 720px) {
+  .layout { grid-template-columns: 1fr; }
+  .machine-side { border-right: none; border-bottom: 1px solid var(--border); }
+  .panel-side { padding: 24px 16px; }
+}
+</style>
+</head>
 <body>
 
-<h1 class="title">INSTA-VEND</h1>
+<!-- ── HEADER ─────────────────────────────────────────────── -->
+<header class="header">
+  <div class="logo">VEND<span>BOT</span> 3000</div>
+  <div class="header-right">
+    <div class="conn-badge">
+      <div class="conn-dot" id="connDot"></div>
+      <span id="connLabel">CONNECTING</span>
+    </div>
+    <div class="time-display" id="clock"></div>
+  </div>
+</header>
 
-<div class="token">
-User : client1 <br>
-Tokens : <span id="token">100</span>
+<!-- ── MAIN LAYOUT ────────────────────────────────────────── -->
+<div class="layout">
+
+  <!-- LEFT: Products + Coins -->
+  <div class="machine-side">
+
+    <div class="section-label">Select Product</div>
+    <div class="items-grid" id="itemsGrid">
+      <!-- rendered by JS -->
+    </div>
+
+    <div class="section-label">Insert Money</div>
+    <div class="coins-grid" id="coinsGrid">
+      <!-- rendered by JS -->
+    </div>
+
+  </div>
+
+  <!-- RIGHT: Order + Controls + Log -->
+  <div class="panel-side">
+
+    <!-- Order summary -->
+    <div class="panel-box">
+      <div class="section-label" style="margin-bottom:14px">Order</div>
+      <div id="orderList">
+        <div class="order-empty">No items selected</div>
+      </div>
+      <div class="total-bar" id="totalBar" style="display:none">
+        <span class="total-label">Total</span>
+        <span class="total-amount" id="totalAmt">₹0</span>
+      </div>
+    </div>
+
+    <!-- Inserted amount -->
+    <div class="panel-box">
+      <div class="section-label" style="margin-bottom:12px">Payment</div>
+      <div class="inserted-display">
+        <div class="ins-col">
+          <span class="ins-label">Inserted</span>
+          <span class="ins-value" id="insVal">₹0</span>
+        </div>
+        <div class="ins-col" style="align-items:flex-end">
+          <span class="ins-label">Required</span>
+          <span class="ins-needed" id="reqVal">₹0</span>
+        </div>
+      </div>
+      <div class="change-bar" id="changeBar"></div>
+    </div>
+
+    <!-- Actions -->
+    <button class="btn-dispense" id="btnDispense" disabled onclick="dispense()">
+      ▶ DISPENSE
+    </button>
+    <button class="btn-cancel" onclick="cancelAll()">✕ Cancel &amp; Refund</button>
+
+    <!-- Log -->
+    <div class="panel-box" style="flex:1">
+      <div class="section-label" style="margin-bottom:10px">Transaction Log</div>
+      <div class="log-feed" id="logFeed"></div>
+    </div>
+
+  </div>
 </div>
 
-<div class="products">
-
-<div class="card">
-<img src="chips.png">
-<h3>Chips</h3>
-<p>₹20</p>
-<button onclick="buyProduct('chips',20)">Buy</button>
+<!-- ── SUCCESS MODAL ──────────────────────────────────────── -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <span class="modal-icon" id="modalIcon">✅</span>
+    <div class="modal-title" id="modalTitle">DISPENSING!</div>
+    <div class="modal-body"  id="modalBody"></div>
+    <div class="modal-txn"  id="modalTxn"></div>
+    <button class="modal-close" onclick="closeModal()">DONE</button>
+  </div>
 </div>
 
-<div class="card">
-<img src="cola.png">
-<h3>Cola</h3>
-<p>₹30</p>
-<button onclick="buyProduct('cola',30)">Buy</button>
-</div>
 
-<div class="card">
-<img src="biscuit.png">
-<h3>Biscuit</h3>
-<p>₹15</p>
-<button onclick="buyProduct('biscuit',15)">Buy</button>
-</div>
+<script>
+/* ============================================================
+   ①  MQTT CONFIG  ← Edit these 3 lines for HiveMQ Cloud
+============================================================ */
+const MQTT_BROKER   = 'wss://broker.hivemq.com:8884/mqtt'; // public broker (works instantly)
+// const MQTT_BROKER   = 'wss://YOUR_ID.s1.eu.hivemq.cloud:8884/mqtt'; // HiveMQ Cloud
+const MQTT_USERNAME = '';   // leave blank for public broker
+const MQTT_PASSWORD = '';   // leave blank for public broker
 
-<div class="card">
-<img src="wafer.png">
-<h3>Wafer</h3>
-<p>₹25</p>
-<button onclick="buyProduct('wafer',25)">Buy</button>
-</div>
+const TOPICS = {
+  order:   'vendbot/order',
+  payment: 'vendbot/payment',
+};
 
-</div>
+/* ============================================================
+   ②  PRODUCTS — 4 items
+============================================================ */
+const PRODUCTS = [
+  { id: 'A1', name: 'COLA',   emoji: '🥤', price: 20, stock: 5 },
+  { id: 'A2', name: 'LAYS',   emoji: '🍟', price: 15, stock: 8 },
+  { id: 'B1', name: 'KITKAT', emoji: '🍫', price: 25, stock: 4 },
+  { id: 'B2', name: 'WATER',  emoji: '💧', price: 10, stock: 10 },
+];
 
-<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-<script src="mqtt.js"></script>
-<script src="app.js"></script>
+/* ============================================================
+   ③  COIN DENOMINATIONS
+============================================================ */
+const COINS = [1, 2, 5, 10, 20, 50, 100, 500];
 
+/* ============================================================
+   STATE
+============================================================ */
+let cart     = {};   // { productId: quantity }
+let inserted = 0;
+let client   = null;
+
+/* ============================================================
+   MQTT
+============================================================ */
+function mqttConnect() {
+  log('Connecting to HiveMQ...', 'info');
+
+  const opts = {
+    clientId:       'vb_' + Math.random().toString(36).slice(2, 8),
+    clean:          true,
+    reconnectPeriod: 4000,
+  };
+  if (MQTT_USERNAME) { opts.username = MQTT_USERNAME; opts.password = MQTT_PASSWORD; }
+
+  client = mqtt.connect(MQTT_BROKER, opts);
+
+  client.on('connect', () => {
+    setConn('live', 'CONNECTED');
+    log('Connected ✓', 'ok');
+  });
+  client.on('error', e => {
+    setConn('err', 'ERROR');
+    log('MQTT: ' + e.message, 'err');
+  });
+  client.on('offline', () => {
+    setConn('', 'OFFLINE');
+    log('Offline — retrying...', 'err');
+  });
+}
+
+function mqttPublish(topic, payload) {
+  if (!client || !client.connected) {
+    log('Not connected — skipped', 'err');
+    return false;
+  }
+  client.publish(topic, JSON.stringify(payload), { qos: 1 });
+  log('Published → ' + topic, 'ok');
+  return true;
+}
+
+/* ============================================================
+   RENDER — PRODUCTS
+============================================================ */
+function renderProducts() {
+  const grid = document.getElementById('itemsGrid');
+  grid.innerHTML = PRODUCTS.map(p => {
+    const qty     = cart[p.id] || 0;
+    const sel     = qty > 0;
+    const lowSt   = p.stock <= 2;
+    const noSt    = p.stock === 0;
+    return `
+    <div class="item-card ${sel ? 'selected' : ''} ${noSt ? 'disabled-card' : ''}"
+         id="card_${p.id}"
+         onclick="${noSt ? '' : `toggleItem('${p.id}')`}"
+         style="${noSt ? 'opacity:.35;cursor:not-allowed;pointer-events:none' : ''}">
+      <div class="item-check">✓</div>
+      <div class="item-slot">${p.id}</div>
+      <span class="item-emoji">${p.emoji}</span>
+      <div class="item-name">${p.name}</div>
+      <div class="item-price"><span>₹</span>${p.price}</div>
+      <div class="item-stock ${lowSt && !noSt ? 'low' : ''}">
+        ${noSt ? 'OUT OF STOCK' : p.stock + ' in stock'}
+      </div>
+      ${sel ? `
+      <div class="qty-row" onclick="event.stopPropagation()">
+        <button class="qty-btn" onclick="changeQty('${p.id}',-1)">−</button>
+        <span class="qty-val">${qty}</span>
+        <button class="qty-btn" onclick="changeQty('${p.id}',+1)">+</button>
+      </div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+/* ============================================================
+   RENDER — COINS
+============================================================ */
+function renderCoins() {
+  document.getElementById('coinsGrid').innerHTML =
+    COINS.map(c => `<button class="coin-btn" onclick="addCoin(${c})">+₹${c}</button>`).join('');
+}
+
+/* ============================================================
+   RENDER — ORDER PANEL
+============================================================ */
+function renderOrder() {
+  const listEl   = document.getElementById('orderList');
+  const totalBar = document.getElementById('totalBar');
+  const totalAmt = document.getElementById('totalAmt');
+
+  const entries = PRODUCTS.filter(p => (cart[p.id] || 0) > 0);
+
+  if (entries.length === 0) {
+    listEl.innerHTML = '<div class="order-empty">No items selected</div>';
+    totalBar.style.display = 'none';
+  } else {
+    listEl.innerHTML = entries.map(p => `
+      <div class="order-row">
+        <div class="order-row-name">
+          <span>${p.emoji}</span>
+          <span>${p.name} ×${cart[p.id]}</span>
+        </div>
+        <div style="display:flex;align-items:center">
+          <span class="order-row-price">₹${p.price * cart[p.id]}</span>
+          <button class="order-row-remove" onclick="removeItem('${p.id}')">✕</button>
+        </div>
+      </div>`).join('');
+    totalBar.style.display = 'flex';
+    totalAmt.textContent   = '₹' + total();
+  }
+
+  updatePaymentUI();
+}
+
+/* ============================================================
+   PAYMENT UI
+============================================================ */
+function updatePaymentUI() {
+  const t    = total();
+  const diff = inserted - t;
+
+  document.getElementById('insVal').textContent = '₹' + inserted;
+  document.getElementById('reqVal').textContent = '₹' + t;
+
+  const bar = document.getElementById('changeBar');
+  if (inserted > 0 && t > 0) {
+    if (diff >= 0) {
+      bar.className   = 'change-bar ok';
+      bar.textContent = diff > 0 ? `Change due: ₹${diff}` : 'Exact amount ✓';
+    } else {
+      bar.className   = 'change-bar short';
+      bar.textContent = `Need ₹${Math.abs(diff)} more`;
+    }
+  } else {
+    bar.className = 'change-bar';
+  }
+
+  document.getElementById('btnDispense').disabled = !(t > 0 && inserted >= t);
+}
+
+/* ============================================================
+   ACTIONS
+============================================================ */
+function total() {
+  return PRODUCTS.reduce((s, p) => s + p.price * (cart[p.id] || 0), 0);
+}
+
+function toggleItem(id) {
+  const p = PRODUCTS.find(x => x.id === id);
+  if (!p || p.stock === 0) return;
+  if ((cart[id] || 0) > 0) delete cart[id];
+  else cart[id] = 1;
+  renderProducts();
+  renderOrder();
+}
+
+function changeQty(id, delta) {
+  const p   = PRODUCTS.find(x => x.id === id);
+  const cur = cart[id] || 0;
+  const nxt = cur + delta;
+  if (nxt <= 0)       { delete cart[id]; }
+  else if (nxt > p.stock) { log('Max stock reached for ' + p.name, 'err'); return; }
+  else                { cart[id] = nxt; }
+  renderProducts();
+  renderOrder();
+}
+
+function removeItem(id) {
+  delete cart[id];
+  renderProducts();
+  renderOrder();
+  log('Removed item', 'info');
+}
+
+function addCoin(val) {
+  inserted += val;
+  log('+₹' + val + ' inserted', 'info');
+  updatePaymentUI();
+}
+
+function dispense() {
+  const t = total();
+  if (t === 0 || inserted < t) return;
+
+  const txnId  = 'TXN-' + Date.now();
+  const ts     = new Date().toISOString();
+  const change = inserted - t;
+  const items  = PRODUCTS
+    .filter(p => (cart[p.id] || 0) > 0)
+    .map(p => ({
+      slot:     p.id,
+      name:     p.name,
+      qty:      cart[p.id],
+      price:    p.price,
+      subtotal: p.price * cart[p.id]
+    }));
+
+  /* ── Publish ORDER to HiveMQ ── */
+  mqttPublish(TOPICS.order, {
+    transactionId: txnId,
+    timestamp:     ts,
+    items,
+    totalAmount:   t
+  });
+
+  /* ── Publish PAYMENT to HiveMQ ── */
+  mqttPublish(TOPICS.payment, {
+    transactionId:  txnId,
+    timestamp:      ts,
+    amountInserted: inserted,
+    totalCharged:   t,
+    changeDue:      change,
+    status:         'SUCCESS'
+  });
+
+  /* deduct stock */
+  items.forEach(i => {
+    const p = PRODUCTS.find(x => x.id === i.slot);
+    if (p) p.stock -= i.qty;
+  });
+
+  /* show modal */
+  const summary = items.map(i => `${i.emoji || ''} ${i.name} ×${i.qty}  ₹${i.subtotal}`).join('\n');
+  showModal(
+    '✅',
+    'ORDER CONFIRMED',
+    `${summary}\n\nPaid: ₹${inserted}   Change: ₹${change}`,
+    txnId
+  );
+
+  log('✓ Dispensed — ' + txnId, 'ok');
+
+  cart = {}; inserted = 0;
+  renderProducts(); renderOrder();
+}
+
+function cancelAll() {
+  if (inserted > 0) {
+    showModal('💸', 'REFUNDED', `Returning ₹${inserted}`, '');
+    log('Refunded ₹' + inserted, 'info');
+  }
+  cart = {}; inserted = 0;
+  renderProducts(); renderOrder();
+}
+
+/* ============================================================
+   MODAL
+============================================================ */
+function showModal(icon, title, body, txn) {
+  document.getElementById('modalIcon').textContent  = icon;
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalBody').textContent  = body;
+  document.getElementById('modalTxn').textContent   = txn ? 'TXN: ' + txn : '';
+  document.getElementById('overlay').classList.add('show');
+}
+function closeModal() {
+  document.getElementById('overlay').classList.remove('show');
+}
+
+/* ============================================================
+   HELPERS
+============================================================ */
+function setConn(state, label) {
+  document.getElementById('connDot').className   = 'conn-dot ' + state;
+  document.getElementById('connLabel').textContent = label;
+}
+
+function log(msg, type = 'info') {
+  const feed = document.getElementById('logFeed');
+  const ts   = new Date().toLocaleTimeString('en-GB', { hour12: false });
+  const el   = document.createElement('div');
+  el.className = 'log-line';
+  el.innerHTML = `<span class="log-ts">[${ts}]</span><span class="log-${type}">${msg}</span>`;
+  feed.prepend(el);
+  while (feed.children.length > 40) feed.removeChild(feed.lastChild);
+}
+
+function updateClock() {
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString('en-GB', { hour12: false });
+}
+
+/* ============================================================
+   INIT
+============================================================ */
+renderProducts();
+renderCoins();
+renderOrder();
+mqttConnect();
+updateClock();
+setInterval(updateClock, 1000);
+</script>
 </body>
 </html>
