@@ -1,10 +1,10 @@
 const mqtt = require('mqtt')
 
 const client = mqtt.connect(
-'mqtts://YOUR_CLUSTER.s1.eu.hivemq.cloud:8883',
+'http://366c887e88bf40c496821b5e646d3a12.s1.eu.hivemq.cloud:8883',
 {
-username:"USERNAME",
-password:"PASSWORD"
+username:"hivemq.webclient.1775540663302",
+password:"7@1wDCrTa0jP<Wn>8yN,"
 })
 
 client.on('connect',()=>{
